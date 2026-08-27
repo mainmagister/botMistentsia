@@ -118,7 +118,7 @@ async def update_persistent_leaderboard():
         medals = ["🥇", "🥈", "🥉"]
         leaderboard_text = ""
 
-        for index, (user_id, points) in enumerate(sorted_users[:10]):
+        for index, (user_id, points) in enumerate(sorted_users[:50]):
             member = channel.guild.get_member(int(user_id))
             fallback_name = member.display_name if member else f"Мандрівник ({user_id})"
             game_name = get_game_name(user_id, fallback_name)
