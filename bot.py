@@ -3,6 +3,21 @@ from discord.ext import commands
 import json
 import os
 from datetime import datetime, timezone
+from aiohttp import web
+import asyncio
+
+# --- ВЕБСЕРВЕР ДЛЯ RENDER (щоб не було Timed Out) ---
+async def handle(request):
+    return web.Response(text="Bot is alive!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
 # --- УНІВЕРСАЛЬНІ ФУНКЦІЇ ДЛЯ ФАЙЛІВ ---
 def load_data(file, default):
@@ -43,7 +58,7 @@ ROLE_LEGENDA = 1458555330656080116
 ROLE_LORD = 1458555480124424253
 
 КАНАЛ_ЛОГІВ = 1458559571370053696  # ID каналу для Канцелярії/Консула
-КАНАЛ_ЛІДЕРБОРДУ = 1542471245302341692 # <--- Встав сюди ID каналу, де має висіти постійний лідерборд!
+КАНАЛ_ЛІДЕРБОРДУ = 1542471245302341692 # ID каналу лідерборду
 
 RANK_ROLES = {
     "👣 Прибулий": ROLE_PRIBYLYI,
@@ -58,7 +73,7 @@ RANK_ROLES = {
 }
 
 BALANCE_FILE = 'balance.json'
-TIMESTAMPS_FILE = 'timestamps.json' # Зберігаємо час останнього нарахування балів
+TIMESTAMPS_FILE = 'timestamps.json' 
 LEDBEAR_CONFIG = 'leaderboard_msg.json'
 
 def load_balance():
@@ -78,8 +93,8 @@ def save_timestamps(data):
 @bot.event
 async def on_ready():
     print(f'✅ Бот {bot.user} запущено!')
-    bot.add_view(WelcomeButtons())  # Для кнопок привітань
-    bot.add_view(HelpButtons())     # Для довідки
+    bot.add_view(WelcomeButtons())  
+    bot.add_view(HelpButtons())     
     
     try:
         await bot.tree.sync()
@@ -146,7 +161,7 @@ async def update_persistent_leaderboard():
         save_data(LEDBEAR_CONFIG, {"msg_id": new_msg.id})
 
 
-# Вітання нових учасників (без професій)
+# Вітання нових учасників
 @bot.event
 async def on_member_join(member):
     guild = member.guild
@@ -172,7 +187,6 @@ class WelcomeButtons(discord.ui.View):
                 member = await interaction.guild.fetch_member(self.user_id)
                 await member.add_roles(discord.Object(id=РОЛЬ_ЗА_МЕШКАНЕЦЬ))
                 
-                # Відправляємо привітне повідомлення в ЛС
                 try:
                     emb = discord.Embed(
                         title="💜 Вітаємо у Містенції!", 
@@ -243,7 +257,7 @@ def get_rank_name(points):
     else: return "👑 Лорд Містенції"
 
 
-# --- СЛЕШ-КОМАНДА: БАЛИ ПЛЮС (МУЛЬТИ) ---
+# --- СЛЕШ-КОМАНДА: БАЛИ ПЛЮС ---
 @bot.tree.command(name="бали_плюс", description="Додати бали кільком мешканцям одразу")
 async def add_points(interaction: discord.Interaction, members_input: str, points: int, reason: str = "Причина не вказана"):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
@@ -264,7 +278,7 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
             if member:
                 user_id = str(member.id)
                 balance[user_id] = balance.get(user_id, 0) + points
-                timestamps[user_id] = current_time # Оновлюємо час останньої активності балів
+                timestamps[user_id] = current_time 
                 await update_member_rank_role(member, balance[user_id])
                 success_mentions.append(member.mention)
 
@@ -283,7 +297,6 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
     )
     await interaction.response.send_message(embed=embed_user, ephemeral=True)
 
-    # ЛОГУВАННЯ
     try:
         log_channel = bot.get_channel(КАНАЛ_ЛОГІВ)
         if log_channel:
@@ -301,7 +314,7 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
         print(f"Помилка логів: {e}")
 
 
-# --- СЛЕШ-КОМАНДА: БАЛИ МІНУС (МУЛЬТИ) ---
+# --- СЛЕШ-КОМАНДА: БАЛИ МІНУС ---
 @bot.tree.command(name="бали_мінус", description="Зняти бали (штраф) у кількох мешканців одразу")
 async def remove_points(interaction: discord.Interaction, members_input: str, points: int, reason: str = "Причина не вказана"):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
@@ -322,7 +335,7 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
             if member:
                 user_id = str(member.id)
                 balance[user_id] = max(balance.get(user_id, 0) - points, 0)
-                timestamps[user_id] = current_time # Час штрафу теж оновлює активність
+                timestamps[user_id] = current_time 
                 await update_member_rank_role(member, balance[user_id])
                 success_mentions.append(member.mention)
 
@@ -341,7 +354,6 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
     )
     await interaction.response.send_message(embed=embed_user, ephemeral=True)
 
-    # ЛОГУВАННЯ
     try:
         log_channel = bot.get_channel(КАНАЛ_ЛОГІВ)
         if log_channel:
@@ -359,14 +371,14 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
         print(f"Помилка логів: {e}")
 
 
-# --- СЛЕШ-КОМАНДА: БАЛИ (ПАСПОРТ І ЧАС ОСТАННІХ БАЛІВ) ---
+# --- СЛЕШ-КОМАНДА: БАЛИ (ПАСПОРТ) ---
 @bot.tree.command(name="бали", description="Переглянути свій паспорт та час останніх балів")
 async def check_points(interaction: discord.Interaction, member: discord.Member = None):
     balance = load_balance()
     timestamps = load_timestamps()
     
-    user = member or interaction.user
-    uid = str(user.id)
+    target_member = member or interaction.user
+    uid = str(target_member.id)
     pts = balance.get(uid, 0)
     
     rank = get_rank_name(pts)
@@ -382,9 +394,13 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
     bar = "▰" * progress + "▱" * (10 - progress)
     percent = int((pts / next_goal) * 100) if next_goal > 0 else 100
 
-    joined_at = member.joined_at.strftime("%d.%m.%Y") if hasattr(member, "joined_at") and member.joined_at else "Невідомо"
+    # Безпечне отримання дати приєднання, конвертуючи в Member за потреби
+    if isinstance(target_member, discord.Member):
+        joined_at = target_member.joined_at.strftime("%d.%m.%Y") if target_member.joined_at else "Невідомо"
+    else:
+        guild_member = interaction.guild.get_member(target_member.id)
+        joined_at = guild_member.joined_at.strftime("%d.%m.%Y") if guild_member and guild_member.joined_at else "Невідомо"
 
-    # Розрахунок часу з моменту останнього нарахування балів
     last_time_str = timestamps.get(uid)
     if last_time_str:
         last_dt = datetime.fromisoformat(last_time_str)
@@ -404,12 +420,12 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
         time_ago = "Ще не отримував(-ла)"
 
     emb = discord.Embed(
-        title=f"💳 Офіційний паспорт: {user.display_name}",
+        title=f"💳 Офіційний паспорт: {target_member.display_name}",
         color=0x9B59B6
     )
     
-    emb.set_thumbnail(url=user.display_avatar.url)
-    emb.add_field(name="👤 Мешканець", value=user.mention, inline=True)
+    emb.set_thumbnail(url=target_member.display_avatar.url)
+    emb.add_field(name="👤 Мешканець", value=target_member.mention, inline=True)
     emb.add_field(name="📅 У місті з:", value=joined_at, inline=True)
     emb.add_field(name="💰 Поточний баланс", value=f"**{pts}** балів", inline=True)
     emb.add_field(name="🎖️ Ранг", value=rank, inline=True)
@@ -420,7 +436,6 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
         inline=False
     )
     
-    # Виводимо інформацію про останнє нарахування балів замість старого коментаря
     emb.add_field(name="⏳ Останні бали", value=f"*{time_ago}*", inline=False)
     
     emb.set_footer(text="Містенція • Державна автоматизація", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
@@ -469,5 +484,11 @@ async def update_member_rank_role(member, points):
         print(f"Помилка при зміні ролі: {e}")
 
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-bot.run(TOKEN)
+# --- ГОЛОВНА ТОЧКА ЗАПУСКУ З ВЕБСЕРВЕРОМ ---
+async def main():
+    await start_web_server()
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    await bot.start(TOKEN)
+
+if __name__ == "__main__":
+    asyncio.run(main())
