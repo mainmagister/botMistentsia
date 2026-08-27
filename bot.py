@@ -382,7 +382,7 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
     bar = "▰" * progress + "▱" * (10 - progress)
     percent = int((pts / next_goal) * 100) if next_goal > 0 else 100
 
-    joined_at = user.joined_at.strftime("%d.%m.%Y") if user.joined_at else "Невідомо"
+    joined_at = member.joined_at.strftime("%d.%m.%Y") if hasattr(member, "joined_at") and member.joined_at else "Невідомо"
 
     # Розрахунок часу з моменту останнього нарахування балів
     last_time_str = timestamps.get(uid)
