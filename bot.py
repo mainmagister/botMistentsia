@@ -40,11 +40,12 @@ intents.members = True  # щоб bot міг бачити учасників
 
 bot = commands.Bot(command_prefix="?", intents=intents)
 
-# ID ролей та каналів — ВАЖЛИВО! Впишіть свої!
-КАНАЛ_ПРИВІТАНЬ = 1369618429836923010  # ID каналу, куди бот вітає нових
-РОЛЬ_УРЯДОВЕЦЬ = 1369616562134188082  # Роль урядовця
-РОЛЬ_ЗА_МЕШКАНЕЦЬ = 1369616831874207857  # Роль мешканця
-РОЛЬ_ЗА_ГІСТЬ = 1369616891445776435  # Роль гостя
+# ID ролей та каналів
+КАНАЛ_ПРИВІТАНЬ = 1369618429836923010  
+РОЛЬ_УРЯДОВЕЦЬ = 1369616562134188082  
+РОЛЬ_КОНСУЛ = 1369616488025296948   # <--- Роль Консула для повного видалення
+РОЛЬ_ЗА_МЕШКАНЕЦЬ = 1369616831874207857  
+РОЛЬ_ЗА_ГІСТЬ = 1369616891445776435  
 
 # ID ролей за ранги
 ROLE_PRIBYLYI = 1422263731597082675
@@ -57,8 +58,8 @@ ROLE_VARTOVYI = 1458555174640681094
 ROLE_LEGENDA = 1458555330656080116
 ROLE_LORD = 1458555480124424253
 
-КАНАЛ_ЛОГІВ = 1458559571370053696  # ID каналу для Канцелярії/Консула
-КАНАЛ_ЛІДЕРБОРДУ = 1542471245302341692 # ID каналу лідерборду
+КАНАЛ_ЛОГІВ = 1458559571370053696  
+КАНАЛ_ЛІДЕРБОРДУ = 1542471245302341692 
 
 RANK_ROLES = {
     "👣 Прибулий": ROLE_PRIBYLYI,
@@ -75,6 +76,7 @@ RANK_ROLES = {
 BALANCE_FILE = 'balance.json'
 TIMESTAMPS_FILE = 'timestamps.json' 
 LEDBEAR_CONFIG = 'leaderboard_msg.json'
+NICKNAMES_FILE = 'nicknames.json' # База ігрових ніків
 
 def load_balance():
     return load_data(BALANCE_FILE, {})
@@ -87,6 +89,16 @@ def load_timestamps():
 
 def save_timestamps(data):
     save_data(TIMESTAMPS_FILE, data)
+
+def load_nicknames():
+    return load_data(NICKNAMES_FILE, {})
+
+def save_nicknames(data):
+    save_data(NICKNAMES_FILE, data)
+
+def get_game_name(user_id, default_name):
+    nicknames = load_nicknames()
+    return nicknames.get(str(user_id), default_name)
 
 
 # Старт бота
@@ -105,7 +117,7 @@ async def on_ready():
     await update_persistent_leaderboard()
 
 
-# --- ПОСТІЙНИЙ ЛІДЕРБОРД ---
+# --- ПОСТІЙНИЙ ЛІДЕРБОРД (Ігрові ніки + місця) ---
 async def update_persistent_leaderboard():
     if КАНАЛ_ЛІДЕРБОРДУ == 0:
         return
@@ -117,7 +129,7 @@ async def update_persistent_leaderboard():
     balance = load_balance()
     embed = discord.Embed(
         title="🏆 Топ мешканців Містенції",
-        description="Рейтинг гравців та їхні поточні ранги",
+        description="Рейтинг гравців за ігровими ніками та їхні поточні ранги",
         color=0x9B59B6
     )
 
@@ -130,18 +142,17 @@ async def update_persistent_leaderboard():
 
         for index, (user_id, points) in enumerate(sorted_users[:10]):
             member = channel.guild.get_member(int(user_id))
-            if member:
-                name = member.display_name
-            else:
-                try:
-                    user = await bot.fetch_user(int(user_id))
-                    name = user.name
-                except:
-                    name = f"Мандрівник ({user_id})"
+            fallback_name = member.display_name if member else f"Мандрівник ({user_id})"
+            game_name = get_game_name(user_id, fallback_name)
             
-            prefix = medals[index] if index < 3 else "⭐"
+            # Визначаємо місце (емодзі для топ-3, або просто номер)
+            if index < 3:
+                place_str = medals[index]
+            else:
+                place_str = f"`#{index + 1}`"
+
             rank = get_rank_name(points)
-            leaderboard_text += f"{prefix} **{name}** — {points} балів\n╰ *{rank}*\n\n"
+            leaderboard_text += f"{place_str} **{game_name}** — {points} балів\n╰ *{rank}*\n\n"
 
         embed.add_field(name="Рейтинг:", value=leaderboard_text, inline=False)
     
@@ -187,10 +198,38 @@ class WelcomeButtons(discord.ui.View):
                 member = await interaction.guild.fetch_member(self.user_id)
                 await member.add_roles(discord.Object(id=РОЛЬ_ЗА_МЕШКАНЕЦЬ))
                 
+                # Запитуємо ігровий нік у приватних повідомленнях (ЛС)
+                try:
+                    emb_dm = discord.Embed(
+                        title="💜 Вітаємо у Містенції!", 
+                        description="Тобі щойно видали роль мешканця! Напиши у відповідь на це повідомлення свій **ігровий нік**, який буде відображатися в лідерборді та паспорті:", 
+                        color=0x9B59B6
+                    )
+                    await member.send(embed=emb_dm)
+                    
+                    def check(m):
+                        return m.author.id == member.id and isinstance(m.channel, discord.DMChannel)
+
+                    # Чекаємо відповідь від користувача в ЛС (таймаут 3 хвилини)
+                    msg = await bot.wait_for('message', timeout=180.0, check=check)
+                    game_nick = msg.content.strip()
+                    
+                    nicknames = load_nicknames()
+                    nicknames[str(member.id)] = game_nick
+                    save_nicknames(nicknames)
+                    
+                    await member.send(f"✅ Чудово! Твій ігровий нік **{game_nick}** успішно збережено.")
+                    await update_persistent_leaderboard()
+                except asyncio.TimeoutError:
+                    await member.send("⏳ Час очікування минув. Ти зможеш пізніше встановити нік або адміністрація опрацює це.")
+                except Exception as e:
+                    print(f"Не вдалося отримати нік у ЛС: {e}")
+                
+                # Вітальне повідомлення в ЛС про загалом комфортну гру
                 try:
                     emb = discord.Embed(
-                        title="💜 Вітаємо у Містенції!", 
-                        description="Тобі видали роль мешканця! Гарної гри на нашому сервері.", 
+                        title="💜 Гарної гри!", 
+                        description="Раді бачити тебе на нашому сервері.", 
                         color=0x9B59B6
                     )
                     await member.send(embed=emb)
@@ -255,6 +294,110 @@ def get_rank_name(points):
     elif points <= 130: return "🛡️ Вартовий"
     elif points <= 150: return "🎖️ Легенда Містенції"
     else: return "👑 Лорд Містенції"
+
+
+# --- КОМАНДА: ПОВНЕ ВИДАЛЕННЯ ЛЮДИНИ (ЛИШЕ КОНСУЛ З ПІДТВЕРДЖЕННЯМ) ---
+class ConfirmDeleteView(discord.ui.View):
+    def __init__(self, target_member: discord.Member):
+        super().__init__(timeout=60)
+        self.target_member = target_member
+        self.value = None
+
+    @discord.ui.button(label="Підтвердити видалення", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(self.target_member.id)
+        
+        # Вичищаємо всі сліди з баз даних
+        balance = load_balance()
+        if uid in balance:
+            del balance[uid]
+            save_balance(balance)
+            
+        timestamps = load_timestamps()
+        if uid in timestamps:
+            del timestamps[uid]
+            save_timestamps(timestamps)
+            
+        nicknames = load_nicknames()
+        if uid in nicknames:
+            del nicknames[uid]
+            save_nicknames(nicknames)
+
+        await update_persistent_leaderboard()
+        
+        for child in self.children:
+            child.disabled = True
+        
+        await interaction.response.edit_message(content=f"✅ Користувача {self.target_member.mention} повністю стерто з усіх баз даних Містенції.", view=self)
+        self.stop()
+
+    @discord.ui.button(label="Скасувати", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ Видалення скасовано.", view=self)
+        self.stop()
+
+
+@bot.tree.command(name="видалити_мешканця", description="Повністю стерти дані мешканця з усіх файлів (тільки Консул)")
+async def delete_resident(interaction: discord.Interaction, member: discord.Member):
+    if not discord.utils.get(interaction.user.roles, id=РОЛЬ_КОНСУЛ):
+        await interaction.response.send_message("❌ Цю команду може виконувати лише Консул!", ephemeral=True)
+        return
+
+    view = ConfirmDeleteView(member)
+    embed = discord.Embed(
+        title="⚠️ Підтвердження повного видалення",
+        description=f"Ви збираєтесь **повністю стерти** всі дані (бали, таймстапи, ігровий нік) користувача {member.mention} з усіх файлів бота.\n\nЦю дію неможливо скасувати. Продовжити?",
+        color=0xE74C3C
+    )
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+# --- АДМІНСЬКА КОМАНДА: ОПИТАТИ ВСІХ МЕШКАНЦІВ ПРО НІК ---
+@bot.tree.command(name="опитування_ніків", description="Запитати ігровий нік у всіх мешканців, у яких його ще немає (тільки Уряд)")
+async def ask_all_nicknames(interaction: discord.Interaction):
+    if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
+        await interaction.response.send_message("❌ У вас немає прав Урядовця!", ephemeral=True)
+        return
+
+    await interaction.response.send_message("🔄 Розпочато розсилку запитів на ігрові ніки в ЛС мешканцям...", ephemeral=True)
+    
+    nicknames = load_nicknames()
+    count = 0
+    
+    role_meshkanets = interaction.guild.get_role(РОЛЬ_ЗА_МЕШКАНЕЦЬ)
+    if not role_meshkanets:
+        return
+
+    for member in role_meshkanets.members:
+        if str(member.id) not in nicknames:
+            try:
+                emb_dm = discord.Embed(
+                    title="💜 Містенція • Оновлення даних", 
+                    description="Привіт! Администрація нагадує: напиши у відповідь на це повідомлення свій **ігровий нік**, щоб він правильно відображався в лідерборді та паспорті:", 
+                    color=0x9B59B6
+                )
+                await member.send(embed=emb_dm)
+                
+                def check(m):
+                    return m.author.id == member.id and isinstance(m.channel, discord.DMChannel)
+
+                msg = await bot.wait_for('message', timeout=120.0, check=check)
+                game_nick = msg.content.strip()
+                
+                nicknames[str(member.id)] = game_nick
+                save_nicknames(nicknames)
+                count += 1
+                await member.send(f"✅ Дякую! Твій нік **{game_nick}** збережено.")
+            except:
+                pass # Користувач закрив ЛС або час вийшов
+
+    await update_persistent_leaderboard()
+    try:
+        await interaction.followup.send(f"✅ Опитування завершено! Успішно зібрано ніків для {count} мешканців.", ephemeral=True)
+    except:
+        pass
 
 
 # --- СЛЕШ-КОМАНДА: БАЛИ ПЛЮС ---
@@ -371,7 +514,7 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
         print(f"Помилка логів: {e}")
 
 
-# --- СЛЕШ-КОМАНДА: БАЛИ (ПАСПОРТ) ---
+# --- СЛЕШ-КОМАНДА: БАЛИ (ПАСПОРТ З ІГРОВИМ НІКОМ) ---
 @bot.tree.command(name="бали", description="Переглянути свій паспорт та час останніх балів")
 async def check_points(interaction: discord.Interaction, member: discord.Member = None):
     balance = load_balance()
@@ -382,6 +525,7 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
     pts = balance.get(uid, 0)
     
     rank = get_rank_name(pts)
+    game_name = get_game_name(uid, target_member.display_name)
     
     thresholds = [0, 10, 20, 30, 50, 75, 100, 130, 150, 200]
     next_goal = 200
@@ -394,7 +538,6 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
     bar = "▰" * progress + "▱" * (10 - progress)
     percent = int((pts / next_goal) * 100) if next_goal > 0 else 100
 
-    # Безпечне отримання дати приєднання, конвертуючи в Member за потреби
     if isinstance(target_member, discord.Member):
         joined_at = target_member.joined_at.strftime("%d.%m.%Y") if target_member.joined_at else "Невідомо"
     else:
@@ -420,12 +563,13 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
         time_ago = "Ще не отримував(-ла)"
 
     emb = discord.Embed(
-        title=f"💳 Офіційний паспорт: {target_member.display_name}",
+        title=f"💳 Офіційний паспорт: {game_name}",
         color=0x9B59B6
     )
     
     emb.set_thumbnail(url=target_member.display_avatar.url)
     emb.add_field(name="👤 Мешканець", value=target_member.mention, inline=True)
+    emb.add_field(name="🎮 Ігровий нік", value=game_name, inline=True)
     emb.add_field(name="📅 У місті з:", value=joined_at, inline=True)
     emb.add_field(name="💰 Поточний баланс", value=f"**{pts}** балів", inline=True)
     emb.add_field(name="🎖️ Ранг", value=rank, inline=True)
@@ -437,7 +581,6 @@ async def check_points(interaction: discord.Interaction, member: discord.Member 
     )
     
     emb.add_field(name="⏳ Останні бали", value=f"*{time_ago}*", inline=False)
-    
     emb.set_footer(text="Містенція • Державна автоматизація", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
 
     await interaction.response.send_message(embed=emb, ephemeral=True)
@@ -463,10 +606,11 @@ async def update_member_rank_role(member, points):
             await member.add_roles(new_role)
             
             try:
+                game_name = get_game_name(str(member.id), member.display_name)
                 embed = discord.Embed(
                     title="🎊 Нове досягнення в Містенції!",
                     description=(
-                        f"Вітаємо, **{member.display_name}**!\n\n"
+                        f"Вітаємо, **{game_name}** ({member.mention})!\n\n"
                         f"Твоя наполеглива праця принесла плоди. Твій статус у місті оновлено!\n"
                         f"🔹 Новий ранг: **{current_rank_name}**\n\n"
                         f"Продовжуй розвивати наше місто та отримуй нові привілеї!"
