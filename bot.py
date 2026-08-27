@@ -473,4 +473,6 @@ async def update_member_rank_role(member, points):
     except Exception as e:
         print(f"Помилка при зміні ролі: {e}")
 
+
+TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
