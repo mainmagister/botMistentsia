@@ -4,11 +4,6 @@ import json
 import os
 from datetime import datetime, timezone
 
-# Завантажуємо токен із config.json
-with open("config.json", "r", encoding="utf-8") as f:
-    config = json.load(f)
-TOKEN = config["TOKEN"]
-
 # --- УНІВЕРСАЛЬНІ ФУНКЦІЇ ДЛЯ ФАЙЛІВ ---
 def load_data(file, default):
     if not os.path.exists(file):
