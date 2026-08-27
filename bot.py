@@ -102,7 +102,7 @@ async def on_ready():
         
     await update_persistent_leaderboard()
 
-# --- ЛІДЕРБОРД З ЕМОДЗІ ТА НІКАМИ ---
+# --- ЛІДЕРБОРД ---
 async def update_persistent_leaderboard():
     if КАНАЛ_ЛІДЕРБОРДУ == 0: return
     channel = bot.get_channel(КАНАЛ_ЛІДЕРБОРДУ)
@@ -118,7 +118,7 @@ async def update_persistent_leaderboard():
         medals = ["🥇", "🥈", "🥉"]
         leaderboard_text = ""
 
-        for index, (user_id, points) in enumerate(sorted_users[:50]):
+        for index, (user_id, points) in enumerate(sorted_users[:20]):
             member = channel.guild.get_member(int(user_id))
             fallback_name = member.display_name if member else f"Мандрівник ({user_id})"
             game_name = get_game_name(user_id, fallback_name)
@@ -227,7 +227,7 @@ def get_rank_name(points):
     elif points <= 150: return "🎖️ Легенда Містенції"
     else: return "👑 Лорд Містенції"
 
-# --- КОМАНДА: ВИДАЛЕННЯ МЕШКАНЦЯ (КОНСУЛ З КНОПКОЮ) ---
+# --- ВИДАЛЕННЯ МЕШКАНЦЯ ---
 class ConfirmDeleteView(discord.ui.View):
     def __init__(self, target_member: discord.Member):
         super().__init__(timeout=60)
@@ -265,7 +265,7 @@ async def delete_resident(interaction: discord.Interaction, member: discord.Memb
     )
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-# --- АДМІНСЬКА КОМАНДА: ОПИТУВАННЯ НІКІВ ---
+# --- ОПИТУВАННЯ НІКІВ ---
 @bot.tree.command(name="опитування_ніків", description="Запитати ігровий нік у мешканців без ніка (тільки Уряд)")
 async def ask_all_nicknames(interaction: discord.Interaction):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
@@ -292,11 +292,13 @@ async def ask_all_nicknames(interaction: discord.Interaction):
     await update_persistent_leaderboard()
     await interaction.followup.send(f"✅ Опитування завершено! Зібрано ніків для {count} мешканців.", ephemeral=True)
 
-# --- БАЛИ ПЛЮС (З ПЛАШКОЮ ЛОГІВ) ---
+# --- БАЛИ ПЛЮС (З DEFER ДЛЯ ЗАХИСТУ ВІД ТАЙМ-АУТУ) ---
 @bot.tree.command(name="бали_плюс", description="Додати бали кільком мешканцям одразу")
 async def add_points(interaction: discord.Interaction, members_input: str, points: int, reason: str = "Причина не вказана"):
+    await interaction.response.defer(ephemeral=True)
+
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
-        await interaction.response.send_message("❌ У вас немає прав Урядовця!", ephemeral=True)
+        await interaction.followup.send("❌ У вас немає прав Урядовця!", ephemeral=True)
         return
 
     balance, timestamps, success = load_balance(), load_timestamps(), []
@@ -314,7 +316,7 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
                 success.append(member.mention)
 
     if not success:
-        await interaction.response.send_message("❌ Не вдалося знайти жодного мешканця!", ephemeral=True)
+        await interaction.followup.send("❌ Не вдалося знайти жодного мешканця!", ephemeral=True)
         return
 
     save_balance(balance)
@@ -323,7 +325,9 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
 
     mentions_str = ", ".join(success)
     embed_user = discord.Embed(description=f"✅ Нараховано **+{points} балів** для: {mentions_str}!\n📜 **За:** {reason}", color=0x9B59B6)
-    await interaction.response.send_message(embed=embed_user, ephemeral=True)
+    
+    await interaction.channel.send(embed=embed_user)
+    await interaction.followup.send("✅ Команда успішно виконана!", ephemeral=True)
 
     try:
         log_channel = bot.get_channel(КАНАЛ_ЛОГІВ)
@@ -337,11 +341,13 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
     except Exception as e:
         print(f"Помилка логів: {e}")
 
-# --- БАЛИ МІНУС (З ПЛАШКОЮ ЛОГІВ) ---
+# --- БАЛИ МІНУС (З DEFER ДЛЯ ЗАХИСТУ ВІД ТАЙМ-АУТУ) ---
 @bot.tree.command(name="бали_мінус", description="Зняти бали (штраф) у кількох мешканців одразу")
 async def remove_points(interaction: discord.Interaction, members_input: str, points: int, reason: str = "Причина не вказана"):
+    await interaction.response.defer(ephemeral=True)
+
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
-        await interaction.response.send_message("❌ У вас немає прав Урядовця!", ephemeral=True)
+        await interaction.followup.send("❌ У вас немає прав Урядовця!", ephemeral=True)
         return
 
     balance, timestamps, success = load_balance(), load_timestamps(), []
@@ -359,7 +365,7 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
                 success.append(member.mention)
 
     if not success:
-        await interaction.response.send_message("❌ Не вдалося знайти жодного мешканця!", ephemeral=True)
+        await interaction.followup.send("❌ Не вдалося знайти жодного мешканця!", ephemeral=True)
         return
 
     save_balance(balance)
@@ -368,7 +374,9 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
 
     mentions_str = ", ".join(success)
     embed_user = discord.Embed(description=f"⚠️ Знято **-{points} балів** у: {mentions_str}.\n📜 **Причина:** {reason}", color=0xE74C3C)
-    await interaction.response.send_message(embed=embed_user, ephemeral=True)
+    
+    await interaction.channel.send(embed=embed_user)
+    await interaction.followup.send("✅ Команда успішно виконана!", ephemeral=True)
 
     try:
         log_channel = bot.get_channel(КАНАЛ_ЛОГІВ)
