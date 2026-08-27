@@ -95,7 +95,6 @@ async def on_ready():
     bot.add_view(HelpButtons())     
     
     try:
-        # Примусова синхронізація команд на рівні дискорда
         await bot.tree.sync()
         print("✅ Усі слеш-команди успішно синхронізовано!")
     except Exception as e:
@@ -103,6 +102,7 @@ async def on_ready():
         
     await update_persistent_leaderboard()
 
+# --- ЛІДЕРБОРД З ЕМОДЗІ ТА НІКАМИ ---
 async def update_persistent_leaderboard():
     if КАНАЛ_ЛІДЕРБОРДУ == 0: return
     channel = bot.get_channel(КАНАЛ_ЛІДЕРБОРДУ)
@@ -200,15 +200,21 @@ class HelpButtons(discord.ui.View):
 
     @discord.ui.button(label="🌍 Гайд по Долині", style=discord.ButtonStyle.primary, custom_id="help_guide")
     async def guide(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("👋 Основи долини та закони...", ephemeral=True)
+        msg = (
+            "👋 **Вітаю тебе на Долині!** Розкажу тобі основу, щоб ти міг увійти:\n\n"
+            "💰 **Валюта:**\n• **НЗ** — необроблене золото\n• **БНЗ** — блоки необробленого золота\n\n"
+            "🏛️ **Державний устрій:**\nГолова країни — **Президент**. Закони приймає **Парламент**.\n"
+        )
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @discord.ui.button(label="🏛️ Про Містенцію", style=discord.ButtonStyle.secondary, custom_id="help_mystencia")
     async def about(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("💜 Вітаємо в Містенції!", ephemeral=True)
+        await interaction.response.send_message("💜 **Вітаю тебе в Містенції!** Тут твоя безпека та комфорт.", ephemeral=True)
 
 @bot.tree.command(name="довідка", description="Отримати довідку по серверу")
 async def send_help(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=discord.Embed(title="📚 Довідка", color=0x9B59B6), view=HelpButtons(), ephemeral=True)
+    embed = discord.Embed(title="📚 Довідка Містенції", description="Вітаю в довідці! Натискай кнопку нижче.", color=0x9B59B6)
+    await interaction.response.send_message(embed=embed, view=HelpButtons(), ephemeral=True)
 
 def get_rank_name(points):
     if points <= 10: return "👣 Прибулий"
@@ -221,7 +227,7 @@ def get_rank_name(points):
     elif points <= 150: return "🎖️ Легенда Містенції"
     else: return "👑 Лорд Містенції"
 
-# --- ВИДАЛЕННЯ МЕШКАНЦЯ (КОНСУЛ З КНОПКОЮ) ---
+# --- КОМАНДА: ВИДАЛЕННЯ МЕШКАНЦЯ (КОНСУЛ З КНОПКОЮ) ---
 class ConfirmDeleteView(discord.ui.View):
     def __init__(self, target_member: discord.Member):
         super().__init__(timeout=60)
@@ -237,30 +243,36 @@ class ConfirmDeleteView(discord.ui.View):
 
         await update_persistent_leaderboard()
         for child in self.children: child.disabled = True
-        await interaction.response.edit_message(content=f"✅ Користувача {self.target_member.mention} повністю стерто.", view=self)
+        await interaction.response.edit_message(content=f"✅ Користувача {self.target_member.mention} повністю стерто з усіх баз.", view=self)
         self.stop()
 
     @discord.ui.button(label="Скасувати", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         for child in self.children: child.disabled = True
-        await interaction.response.edit_message(content="❌ Скасовано.", view=self)
+        await interaction.response.edit_message(content="❌ Видалення скасовано.", view=self)
         self.stop()
 
-@bot.tree.command(name="видалити_мешканця", description="Повністю стерти дані мешканця (тільки Консул)")
+@bot.tree.command(name="видалити_мешканця", description="Повністю стерти дані мешканця з усіх файлів (тільки Консул)")
 async def delete_resident(interaction: discord.Interaction, member: discord.Member):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_КОНСУЛ):
-        await interaction.response.send_message("❌ Тільки для Консула!", ephemeral=True)
+        await interaction.response.send_message("❌ Цю команду може виконувати лише Консул!", ephemeral=True)
         return
-    await interaction.response.send_message(embed=discord.Embed(title="⚠️ Підтвердження", description=f"Стерти {member.mention} з усіх баз?", color=0xE74C3C), view=ConfirmDeleteView(member), ephemeral=True)
+    view = ConfirmDeleteView(member)
+    embed = discord.Embed(
+        title="⚠️ Підтвердження повного видалення",
+        description=f"Ви збираєтесь **повністю стерти** всі дані користувача {member.mention}.\n\nЦю дію неможливо скасувати. Продовжити?",
+        color=0xE74C3C
+    )
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-# --- ОПИТУВАННЯ НІКІВ ДЛЯ СТАРИХ МЕШКАНЦІВ ---
+# --- АДМІНСЬКА КОМАНДА: ОПИТУВАННЯ НІКІВ ---
 @bot.tree.command(name="опитування_ніків", description="Запитати ігровий нік у мешканців без ніка (тільки Уряд)")
 async def ask_all_nicknames(interaction: discord.Interaction):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
         await interaction.response.send_message("❌ У вас немає прав Урядовця!", ephemeral=True)
         return
 
-    await interaction.response.send_message("🔄 Запускаю опитування в ЛС...", ephemeral=True)
+    await interaction.response.send_message("🔄 Розпочато розсилку запитів на ігрові ніки в ЛС...", ephemeral=True)
     nicknames = load_nicknames()
     role = interaction.guild.get_role(РОЛЬ_ЗА_МЕШКАНЕЦЬ)
     count = 0
@@ -269,7 +281,7 @@ async def ask_all_nicknames(interaction: discord.Interaction):
         for member in role.members:
             if str(member.id) not in nicknames:
                 try:
-                    await member.send("💜 Напиши свій **ігровий нік** для лідерборда:")
+                    await member.send("💜 Напиши свій **ігровий нік** для лідерборда та паспорта:")
                     msg = await bot.wait_for('message', timeout=60.0, check=lambda m: m.author.id == member.id and isinstance(m.channel, discord.DMChannel))
                     nicknames[str(member.id)] = msg.content.strip()
                     save_nicknames(nicknames)
@@ -278,12 +290,13 @@ async def ask_all_nicknames(interaction: discord.Interaction):
                     pass
 
     await update_persistent_leaderboard()
-    await interaction.followup.send(f"✅ Опитування завершено! Зібрано ніків: {count}.", ephemeral=True)
+    await interaction.followup.send(f"✅ Опитування завершено! Зібрано ніків для {count} мешканців.", ephemeral=True)
 
-@bot.tree.command(name="бали_плюс", description="Додати бали кільком мешканцям")
+# --- БАЛИ ПЛЮС (З ПЛАШКОЮ ЛОГІВ) ---
+@bot.tree.command(name="бали_плюс", description="Додати бали кільком мешканцям одразу")
 async def add_points(interaction: discord.Interaction, members_input: str, points: int, reason: str = "Причина не вказана"):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
-        await interaction.response.send_message("❌ Немає прав!", ephemeral=True)
+        await interaction.response.send_message("❌ У вас немає прав Урядовця!", ephemeral=True)
         return
 
     balance, timestamps, success = load_balance(), load_timestamps(), []
@@ -294,20 +307,41 @@ async def add_points(interaction: discord.Interaction, members_input: str, point
         if clean_id.isdigit():
             member = interaction.guild.get_member(int(clean_id))
             if member:
-                balance[str(member.id)] = balance.get(str(member.id), 0) + points
-                timestamps[str(member.id)] = current_time
-                await update_member_rank_role(member, balance[str(member.id)])
+                uid = str(member.id)
+                balance[uid] = balance.get(uid, 0) + points
+                timestamps[uid] = current_time
+                await update_member_rank_role(member, balance[uid])
                 success.append(member.mention)
+
+    if not success:
+        await interaction.response.send_message("❌ Не вдалося знайти жодного мешканця!", ephemeral=True)
+        return
 
     save_balance(balance)
     save_timestamps(timestamps)
     await update_persistent_leaderboard()
-    await interaction.response.send_message(f"✅ Нараховано +{points} для: {', '.join(success)}", ephemeral=True)
 
-@bot.tree.command(name="бали_мінус", description="Зняти бали у мешканців")
+    mentions_str = ", ".join(success)
+    embed_user = discord.Embed(description=f"✅ Нараховано **+{points} балів** для: {mentions_str}!\n📜 **За:** {reason}", color=0x9B59B6)
+    await interaction.response.send_message(embed=embed_user, ephemeral=True)
+
+    try:
+        log_channel = bot.get_channel(КАНАЛ_ЛОГІВ)
+        if log_channel:
+            embed_log = discord.Embed(title="📜 Офіційний звіт: Нарахування", color=0x9B59B6, timestamp=interaction.created_at)
+            embed_log.add_field(name="✍️ Урядовець:", value=interaction.user.mention, inline=True)
+            embed_log.add_field(name="👥 Отримувачі:", value=mentions_str, inline=False)
+            embed_log.add_field(name="💰 Кількість:", value=f"**+{points}** балів", inline=True)
+            embed_log.add_field(name="📝 Коментар:", value=f"*{reason}*", inline=False)
+            await log_channel.send(embed=embed_log)
+    except Exception as e:
+        print(f"Помилка логів: {e}")
+
+# --- БАЛИ МІНУС (З ПЛАШКОЮ ЛОГІВ) ---
+@bot.tree.command(name="бали_мінус", description="Зняти бали (штраф) у кількох мешканців одразу")
 async def remove_points(interaction: discord.Interaction, members_input: str, points: int, reason: str = "Причина не вказана"):
     if not discord.utils.get(interaction.user.roles, id=РОЛЬ_УРЯДОВЕЦЬ):
-        await interaction.response.send_message("❌ Немає прав!", ephemeral=True)
+        await interaction.response.send_message("❌ У вас немає прав Урядовця!", ephemeral=True)
         return
 
     balance, timestamps, success = load_balance(), load_timestamps(), []
@@ -318,24 +352,99 @@ async def remove_points(interaction: discord.Interaction, members_input: str, po
         if clean_id.isdigit():
             member = interaction.guild.get_member(int(clean_id))
             if member:
-                balance[str(member.id)] = max(balance.get(str(member.id), 0) - points, 0)
-                timestamps[str(member.id)] = current_time
-                await update_member_rank_role(member, balance[str(member.id)])
+                uid = str(member.id)
+                balance[uid] = max(balance.get(uid, 0) - points, 0)
+                timestamps[uid] = current_time
+                await update_member_rank_role(member, balance[uid])
                 success.append(member.mention)
+
+    if not success:
+        await interaction.response.send_message("❌ Не вдалося знайти жодного мешканця!", ephemeral=True)
+        return
 
     save_balance(balance)
     save_timestamps(timestamps)
     await update_persistent_leaderboard()
-    await interaction.response.send_message(f"⚠️ Знято {points} у: {', '.join(success)}", ephemeral=True)
 
-@bot.tree.command(name="бали", description="Переглянути паспорт")
+    mentions_str = ", ".join(success)
+    embed_user = discord.Embed(description=f"⚠️ Знято **-{points} балів** у: {mentions_str}.\n📜 **Причина:** {reason}", color=0xE74C3C)
+    await interaction.response.send_message(embed=embed_user, ephemeral=True)
+
+    try:
+        log_channel = bot.get_channel(КАНАЛ_ЛОГІВ)
+        if log_channel:
+            embed_log = discord.Embed(title="⚖️ Офіційний звіт: Штраф", color=0xE74C3C, timestamp=interaction.created_at)
+            embed_log.add_field(name="✍️ Хто виписав:", value=interaction.user.mention, inline=True)
+            embed_log.add_field(name="👥 Порушники:", value=mentions_str, inline=False)
+            embed_log.add_field(name="💰 Штраф:", value=f"-{points} балів", inline=True)
+            embed_log.add_field(name="📝 Причина:", value=f"*{reason}*", inline=False)
+            await log_channel.send(embed=embed_log)
+    except Exception as e:
+        print(f"Помилка логів: {e}")
+
+# --- ПАСПОРТ ГРАВЦЯ ---
+@bot.tree.command(name="бали", description="Переглянути свій паспорт та час останніх балів")
 async def check_points(interaction: discord.Interaction, member: discord.Member = None):
+    balance, timestamps = load_balance(), load_timestamps()
     target = member or interaction.user
-    pts = load_balance().get(str(target.id), 0)
-    await interaction.response.send_message(embed=discord.Embed(title=f"💳 Паспорт: {get_game_name(str(target.id), target.display_name)}", description=f"Баланс: **{pts}**", color=0x9B59B6), ephemeral=True)
+    uid = str(target.id)
+    pts = balance.get(uid, 0)
+    
+    rank = get_rank_name(pts)
+    game_name = get_game_name(uid, target.display_name)
+    
+    thresholds = [0, 10, 20, 30, 50, 75, 100, 130, 150, 200]
+    next_goal = 200
+    for t in thresholds:
+        if t > pts:
+            next_goal = t
+            break
+            
+    progress = min(int((pts / next_goal) * 10), 10) if next_goal > 0 else 10
+    bar = "▰" * progress + "▱" * (10 - progress)
+    percent = int((pts / next_goal) * 100) if next_goal > 0 else 100
+
+    guild_member = interaction.guild.get_member(target.id)
+    joined_at = guild_member.joined_at.strftime("%d.%m.%Y") if guild_member and guild_member.joined_at else "Невідомо"
+
+    last_time_str = timestamps.get(uid)
+    if last_time_str:
+        diff = datetime.now(timezone.utc) - datetime.fromisoformat(last_time_str)
+        hours = int(diff.total_seconds() // 3600)
+        days = hours // 24
+        time_ago = f"{days} дн. тому" if days > 0 else (f"{hours} год. тому" if hours > 0 else "щойно")
+    else:
+        time_ago = "Ще не отримував(-ла)"
+
+    emb = discord.Embed(title=f"💳 Офіційний паспорт: {game_name}", color=0x9B59B6)
+    emb.set_thumbnail(url=target.display_avatar.url)
+    emb.add_field(name="👤 Мешканець", value=target.mention, inline=True)
+    emb.add_field(name="🎮 Ігровий нік", value=game_name, inline=True)
+    emb.add_field(name="📅 У місті з:", value=joined_at, inline=True)
+    emb.add_field(name="💰 Поточний баланс", value=f"**{pts}** балів", inline=True)
+    emb.add_field(name="🎖️ Ранг", value=rank, inline=True)
+    emb.add_field(name=f"📊 Прогрес до цілі ({next_goal} балів)", value=f"**{bar}** {percent}%\n*Залишилось: {max(0, next_goal - pts)} балів*", inline=False)
+    emb.add_field(name="⏳ Останні бали", value=f"*{time_ago}*", inline=False)
+    emb.set_footer(text="Містенція • Державна автоматизація", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
+
+    await interaction.response.send_message(embed=emb, ephemeral=True)
 
 async def update_member_rank_role(member, points):
-    pass
+    current_rank_name = get_rank_name(points)
+    target_role_id = RANK_ROLES.get(current_rank_name)
+    if not target_role_id: return
+
+    try:
+        for role_id in RANK_ROLES.values():
+            role = member.guild.get_role(role_id)
+            if role and role in member.roles and role_id != target_role_id:
+                await member.remove_roles(role)
+        
+        new_role = member.guild.get_role(target_role_id)
+        if new_role and new_role not in member.roles:
+            await member.add_roles(new_role)
+    except Exception as e:
+        print(f"Помилка при зміні ролі: {e}")
 
 async def main():
     await start_web_server()
